@@ -1,10 +1,12 @@
 const axios = require("axios");
-
+require('dotenv').config()
 const rooms = {};
 var games = {};
 let countdownTime = {}; // ตั้งค่าเวลาเริ่มต้นเป็น 0 วินาที
 let countdownInterval = {}; // เก็บข้อมูล interval ของเวลานับถอยหลัง
 let log = {}
+
+
 module.exports = function (io) {
   io.on("connection", (socket) => {
     // Admin join event
@@ -25,7 +27,7 @@ module.exports = function (io) {
 
       try {
         const result = await axios.get(
-          `http://localhost:3001/rooms/code/${code}`
+          `${process.env.SELF_URL}rooms/code/${code}`
         );
         const room = result.data;
 
