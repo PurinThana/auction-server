@@ -1,29 +1,20 @@
 const express = require("express");
-const cors = require("cors"); // Import cors
-const bodyParser = require("body-parser"); // Import body-parser
-const http = require("http"); // Import http for creating server
-const { Server } = require("socket.io"); // Import Server from socket.io
-const socketManager = require("./socketManager"); // Import socketManager
-
-const userRoutes = require("./routes/userRoutes");
+const cors = require("cors");
+const bodyParser = require("body-parser");
+const http = require("http");
+const { Server } = require("socket.io");
+const socketManager = require("./socketManager");
 const roomRoutes = require("./routes/roomRoutes");
-const gameRoutes = require("./routes/gameRoutes");
-const gameLogRoutes = require("./routes/gameLogRoutes");
 
 const app = express();
-const server = http.createServer(app); // Create an HTTP server with Express
+const server = http.createServer(app);
 
 app.use(cors());
-
-// Use body-parser middleware
-app.use(bodyParser.json()); // For parsing application/json
-app.use(bodyParser.urlencoded({ extended: true })); // For parsing application/x-www-form-urlencoded
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
 // Use routes
-app.use("/users", userRoutes);
-app.use("/rooms", roomRoutes);
-app.use("/games", gameRoutes);
-app.use("/gamelogs", gameLogRoutes);
+app.use("/api", roomRoutes);
 
 // Initialize Socket.io with the server and configure CORS
 const io = new Server(server, {
