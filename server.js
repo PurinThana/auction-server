@@ -3,13 +3,32 @@ const cors = require("cors");
 const bodyParser = require("body-parser");
 const http = require("http");
 const { Server } = require("socket.io");
-const socketManager = require("./socketManager");
+const socketManager2 = require("./socketManager2");
 const roomRoutes = require("./routes/roomRoutes");
 
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors());
+// Middleware to count and log requests and responses
+const requestCounter = {
+  count: 0
+};
+
+const countRequestsMiddleware = (req, res, next) => {
+  requestCounter.count += 1;
+  console.log(`Request number: ${requestCounter.count}`);
+
+  res.on('finish', () => {
+    console.log(`Response number: ${requestCounter.count}`);
+  });
+
+  next();
+};
+
+app.use(countRequestsMiddleware); // Use the middleware
+app.use(cors({
+  origin: '*'  // หรือกำหนดที่มาที่ต้องการอนุญาต
+}));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -19,15 +38,15 @@ app.use("/api", roomRoutes);
 // Initialize Socket.io with the server and configure CORS
 const io = new Server(server, {
   cors: {
-    origin: "*", // You can replace '*' with your specific origin(s) to restrict access
-    methods: ["GET", "POST"], // HTTP methods you want to allow
-    allowedHeaders: ["my-custom-header"], // Custom headers you want to allow
-    credentials: true, // Set to true if you need to allow cookies with cross-origin requests
+    origin: "*", // Specify your frontend origin here
+    methods: ["GET", "POST", "PUT"],
+    allowedHeaders: ["my-custom-header"],
+    credentials: true,
   },
 });
 
 // Use socketManager to handle socket events
-socketManager(io);
+socketManager2(io);
 
 const PORT = 3001;
 server.listen(PORT, () => {

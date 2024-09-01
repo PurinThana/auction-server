@@ -34,9 +34,9 @@ async function createRoom(req, res) {
 
     // Insert the new room into the database
     const result = await pool.query(
-      `INSERT INTO rooms (room_number, room_name ,description)
-      VALUES ($1, $2 ,$3) RETURNING room_number, id`,
-      [room_number, room_name ,description]
+      `INSERT INTO rooms (room_number, room_name ,description ,auction_started)
+      VALUES ($1, $2 ,$3 ,$4) RETURNING room_number, id`,
+      [room_number, room_name ,description ,false]
     );
 
     // Return the created room's ID and room number

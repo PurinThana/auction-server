@@ -329,7 +329,7 @@ module.exports = function (io) {
           } else {
             countdownTime[room_number]--;
             
-            io.to(room_number).emit('updateCountdown', countdownTime[room_number]);
+            // io.to(room_number).emit('updateCountdown', countdownTime[room_number]);
           }
         }, 1000);
     
