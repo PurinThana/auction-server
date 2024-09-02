@@ -39,7 +39,7 @@ module.exports = function (io) {
         // Check if the room exists
         const res = await pool.query('SELECT * FROM rooms WHERE room_number = $1', [room_number]);
         const room = res.rows[0];
-
+        console.log(room)
         if (room.auction_started) {
           socket.emit('join-error', 'การประมูลเริ่มไปแล้ว');
           return
