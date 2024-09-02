@@ -48,7 +48,7 @@ const io = new Server(server, {
 // Use socketManager to handle socket events
 socketManager2(io);
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3001; // Use environment variable PORT for Heroku
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
