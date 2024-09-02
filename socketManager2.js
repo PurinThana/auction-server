@@ -110,7 +110,7 @@ module.exports = function (io) {
           const participants = participantsRes.rows;
 
           if (role === 'user') {
-            const userStatus = await pool.query('SELECT * FROM participants WHERE name = $1 AND organization = $2', [name, organization]);
+            const userStatus = await pool.query('SELECT * FROM participants WHERE name = $1 AND organization = $2 AND room_number = $3', [name, organization, roomNumber]);
 
             if (userStatus.rows.length === 0) {
               socket.emit('join-error', 'ท่านไม่ได้มีชื่ออยู่ในห้องประมูลนี้.');
@@ -550,44 +550,85 @@ module.exports = function (io) {
     socket.on('bid', async (data) => {
       const { name, organization, room_number, bid, time } = data;
       const client = await pool.connect();  // Connect to the database
-
+    
       try {
         await client.query('BEGIN');  // Begin the transaction
-
+    
         // Update the room with the new bid information
-        const result = await client.query(
-          `UPDATE rooms
-       SET current_price = $1,
-           time = $2,
-           high_name = $3,
-           high_organization = $4
-       WHERE room_number = $5 
-       RETURNING *`,
-          [bid, time, name, organization, room_number]
+        // const result = await client.query(
+        //   `UPDATE rooms
+        //    SET current_price = $1,
+        //        time = $2,
+        //        high_name = $3,
+        //        high_organization = $4
+        //    WHERE room_number = $5 
+        //    RETURNING *`,
+        //   [bid, time, name, organization, room_number]
+        // );
+    
+        // Update the participants table with the new bid information
+        await client.query(
+          `UPDATE participants
+           SET bid = $1,
+           status = 'bidded'
+           WHERE name = $2 AND organization = $3 AND room_number = $4`,
+          [bid, name, organization, room_number]
         );
-
-        const updatedRoom = result.rows[0];  // Get the updated room details
-
+    
+        // const updatedRoom = result.rows[0];  // Get the updated room details
+    
         await client.query('COMMIT');  // Commit the transaction
-
-        socket.emit('bid-success', updatedRoom);  // Notify the bidder of success
-        io.to(room_number).emit("bidded", updatedRoom);  // Broadcast the update to all clients in the room
-
+    
+        socket.emit('bid-success');  // Notify the bidder of success
+        const userStatus = await pool.query('SELECT * FROM participants WHERE room_number = $1', [ room_number]);
+        io.to(room_number).emit("bidded" , userStatus.rows);  //  Broadcast the update to all clients in the room
+    
       } catch (err) {
         console.log("Error", err);
-
+    
         await client.query('ROLLBACK');  // Roll back the transaction on error
-
+    
         // Notify the bidder of the error
         socket.emit('bid-error', {
           message: "เกิดข้อผิดพลาด",
           error: err
         });
-
+    
       } finally {
         client.release();  // Release the client back to the pool
       }
     });
+    
+    socket.on('finish', async (data) => {
+      const { room_number } = data;
+    
+      // เริ่มต้น transaction
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN'); // เริ่มต้น transaction
+    
+        // ทำการอัปเดตฐานข้อมูล
+        await client.query(
+          `UPDATE rooms
+           SET auction_finished = TRUE
+           WHERE room_number = $1`,
+          [room_number]
+        );
+    
+        // Commit การเปลี่ยนแปลง
+        await client.query('COMMIT');
+    
+        // ส่งข้อมูลให้ client ว่าการประมูลเสร็จสิ้น
+        io.to(room_number).emit('auction-finished');
+      } catch (error) {
+        // Rollback การเปลี่ยนแปลงหากเกิดข้อผิดพลาด
+        await client.query('ROLLBACK');
+        console.error('Error finishing auction:', error);
+      } finally {
+        client.release(); // ปล่อยการเชื่อมต่อกลับ
+      }
+    });
+    
 
 
     // เมื่อผู้ใช้หรือ admin ออกจากห้อง
