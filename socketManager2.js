@@ -149,10 +149,14 @@ module.exports = function (io) {
         if (result.rows.length > 0) {
           const updatedRoom = result.rows[0];
           console.log(updatedRoom)
-          // Emit the updated room information to the specific room
-          // io.to(room_number).emit('updated-auction', updatedRoom);
 
-          // Emit that the timer has started with the specified time
+          const message = `เริ่มจับเวลา รอบที่ ${updatedRoom.round} ราคา ${updatedRoom.current_price}`
+          await pool.query(
+            `INSERT INTO logs (room_number, message)
+            VALUES ($1, $2)`,
+            [room_number, message]
+          );
+
           io.to(room_number).emit('timer-started', time, 'รอบถัดไป');
         } else {
           // Handle case where no room was found or updated
@@ -169,7 +173,7 @@ module.exports = function (io) {
       }
     });
 
-    socket.on('time-out', async (room_number) => {
+    socket.on('time-out', async (room_number, round) => {
       const client = await pool.connect(); // Get a client from the pool
 
       try {
@@ -178,18 +182,27 @@ module.exports = function (io) {
         // Fetch current participants' status
         const participantsRes = await client.query(
           `SELECT name, organization, status, accepted
-       FROM participants
-       WHERE room_number = $1`,
+           FROM participants
+           WHERE room_number = $1`,
           [room_number]
         );
         const participants = participantsRes.rows;
 
         // Update participants based on current status and accepted state
-        const updatePromises = participants.map(participant => {
+        const updatePromises = participants.map(async (participant) => {
           let newStatus;
 
           if (participant.status === 'active') {
             newStatus = participant.accepted ? 'active' : 'semi-inactive';
+
+            if (newStatus === 'semi-inactive') {
+              const message = `ยอมแพ้ในรอบที่ ${round}`;
+              await client.query(
+                `INSERT INTO logs (room_number, message ,name,organization)
+                 VALUES ($1, $2,$3,$4)`,
+                [room_number, message, participant.name, participant.organization]
+              );
+            }
           } else if (participant.status === 'semi-inactive') {
             newStatus = participant.accepted ? 'semi-inactive' : 'inactive';
           } else {
@@ -200,8 +213,8 @@ module.exports = function (io) {
           // Update participant status
           return client.query(
             `UPDATE participants
-         SET accepted = $1, status = $2
-         WHERE room_number = $3 AND name = $4 AND organization = $5`,
+             SET accepted = $1, status = $2
+             WHERE room_number = $3 AND name = $4 AND organization = $5`,
             [false, newStatus, room_number, participant.name, participant.organization]
           );
         });
@@ -214,8 +227,8 @@ module.exports = function (io) {
         // Fetch updated participants
         const updatedParticipantsRes = await client.query(
           `SELECT name, organization, status, accepted
-       FROM participants
-       WHERE room_number = $1`,
+           FROM participants
+           WHERE room_number = $1`,
           [room_number]
         );
         const updatedParticipants = updatedParticipantsRes.rows;
@@ -237,6 +250,7 @@ module.exports = function (io) {
         client.release(); // Release the client back to the pool
       }
     });
+
 
 
 
@@ -285,7 +299,7 @@ module.exports = function (io) {
     });
 
     socket.on('accept-price', async (data) => {
-      const { name, organization, room_number } = data;
+      const { name, organization, room_number, time } = data;
 
       const client = await pool.connect(); // Get a client from the pool
 
@@ -306,7 +320,12 @@ module.exports = function (io) {
         }
 
         // Fetch updated list of participants
-
+        const message = `กดยอมรับราคา`
+        await client.query(
+          `INSERT INTO logs (room_number, message ,name,organization,time)
+          VALUES ($1, $2,$3,$4,$5)`,
+          [room_number, message, name, organization, time]
+        );
 
         await client.query('COMMIT'); // Commit the transaction
         const participantsRes = await pool.query('SELECT * FROM participants WHERE room_number = $1', [room_number]);
@@ -437,10 +456,27 @@ module.exports = function (io) {
             WHERE name = $1 AND organization = $2 AND room_number = $3
         `;
 
-        // อัปเดตสถานะผู้ใช้
-        for (const user of users) {
-          await client.query(query, [user.name, user.organization, room_number]);
-        }
+        const query2 = `INSERT INTO logs (room_number, message ,name,organization)
+          VALUES ($1, $2,$3,$4)`;
+
+        // Create an array of promises for updating users and inserting logs
+        const updatePromises = users.map(user => {
+          // Update the participant status
+          const updateStatusPromise = client.query(query, [user.name, user.organization, room_number]);
+
+          // Insert a log entry
+          const insertLogPromise = client.query(query2, [
+            room_number,
+            "ถูกนำไปโหมดเสนอราคา",
+            user.name,
+            user.organization
+          ]);
+
+          return Promise.all([updateStatusPromise, insertLogPromise]);
+        });
+
+        // Execute all promises concurrently
+        await Promise.all(updatePromises);
 
         // ทำการ Commit Transaction ถ้าทุกอย่างเรียบร้อย
         await client.query('COMMIT');
@@ -550,23 +586,11 @@ module.exports = function (io) {
     socket.on('bid', async (data) => {
       const { name, organization, room_number, bid, time } = data;
       const client = await pool.connect();  // Connect to the database
-    
+
       try {
         await client.query('BEGIN');  // Begin the transaction
-    
-        // Update the room with the new bid information
-        // const result = await client.query(
-        //   `UPDATE rooms
-        //    SET current_price = $1,
-        //        time = $2,
-        //        high_name = $3,
-        //        high_organization = $4
-        //    WHERE room_number = $5 
-        //    RETURNING *`,
-        //   [bid, time, name, organization, room_number]
-        // );
-    
-        // Update the participants table with the new bid information
+
+      
         await client.query(
           `UPDATE participants
            SET bid = $1,
@@ -574,39 +598,44 @@ module.exports = function (io) {
            WHERE name = $2 AND organization = $3 AND room_number = $4`,
           [bid, name, organization, room_number]
         );
-    
+
+        const query = `INSERT INTO logs (room_number, message, name, organization)
+    VALUES ($1, $2, $3, $4)`;
+        const message = `ได้เสนอราคาจำนวน ${Number(bid).toLocaleString()} บาท`
+
+        await client.query(query,[room_number,message,name,organization])
         // const updatedRoom = result.rows[0];  // Get the updated room details
-    
+
         await client.query('COMMIT');  // Commit the transaction
-    
+
         socket.emit('bid-success');  // Notify the bidder of success
-        const userStatus = await pool.query('SELECT * FROM participants WHERE room_number = $1', [ room_number]);
-        io.to(room_number).emit("bidded" , userStatus.rows);  //  Broadcast the update to all clients in the room
-    
+        const userStatus = await pool.query('SELECT * FROM participants WHERE room_number = $1', [room_number]);
+        io.to(room_number).emit("bidded", userStatus.rows);  //  Broadcast the update to all clients in the room
+
       } catch (err) {
         console.log("Error", err);
-    
+
         await client.query('ROLLBACK');  // Roll back the transaction on error
-    
+
         // Notify the bidder of the error
         socket.emit('bid-error', {
           message: "เกิดข้อผิดพลาด",
           error: err
         });
-    
+
       } finally {
         client.release();  // Release the client back to the pool
       }
     });
-    
+
     socket.on('finish', async (data) => {
       const { room_number } = data;
-    
+
       // เริ่มต้น transaction
       const client = await pool.connect();
       try {
         await client.query('BEGIN'); // เริ่มต้น transaction
-    
+
         // ทำการอัปเดตฐานข้อมูล
         await client.query(
           `UPDATE rooms
@@ -614,10 +643,10 @@ module.exports = function (io) {
            WHERE room_number = $1`,
           [room_number]
         );
-    
+
         // Commit การเปลี่ยนแปลง
         await client.query('COMMIT');
-    
+
         // ส่งข้อมูลให้ client ว่าการประมูลเสร็จสิ้น
         io.to(room_number).emit('auction-finished');
       } catch (error) {
@@ -628,7 +657,7 @@ module.exports = function (io) {
         client.release(); // ปล่อยการเชื่อมต่อกลับ
       }
     });
-    
+
 
 
     // เมื่อผู้ใช้หรือ admin ออกจากห้อง
